@@ -4,40 +4,35 @@
 set -e
 
 # --- Configuration ---
-# Use python3 by default. If you have a specific pyenv version active,
-# it should pick that one up.
-PYTHON_CMD="python3"
-# Default libraries to install
-DEFAULT_LIBS="pandas streamlit duckdb jupyterlab" # Added jupyterlab for notebooks
+DEFAULT_LIBS="pandas streamlit duckdb jupyterlab pytest" # Added pytest
 
-# --- Script Logic ---
+# --- Check for uv ---
+if ! command -v uv &> /dev/null; then
+    echo "❌ Error: 'uv' command not found."
+    echo "   'uv' is required for environment and package management in this script."
+    echo "   Install it via pip: 'pip install uv'"
+    echo "   Or follow instructions at: https://github.com/astral-sh/uv"
+    exit 1
+fi
+echo "✅ Found uv: $(command -v uv)"
 
+# --- Get Project Name from Argument ---
 if [ -z "$1" ]; then
   echo "❌ Error: Project name must be provided as the first argument."
   echo "   Usage: curl ... | bash -s -- <project-name>"
   exit 1
 fi
-PROJECT_NAME="$1"
+PROJECT_NAME="$1" # Use the first argument as the project name
 
-echo "🚀 Starting Python Project Setup..."
-# 1. Get Project Name
-# read -p "Enter the name for your new project (e.g., my-data-app): " PROJECT_NAME
+echo "🚀 Starting Python Project Setup for '$PROJECT_NAME' using uv..."
 
-# Basic validation for project name
-if [ -z "$PROJECT_NAME" ]; then
-  echo "❌ Error: Project name cannot be empty."
-  exit 1
-fi
-
-# Check if directory already exists
+# --- Check if directory already exists ---
 if [ -d "$PROJECT_NAME" ]; then
   echo "❌ Error: Directory '$PROJECT_NAME' already exists."
   exit 1
 fi
 
-echo "   Project Name: $PROJECT_NAME"
-
-# 2. Create Project Directory and CD into it
+# --- Create Project Directory and CD into it ---
 echo "   Creating project directory: $PROJECT_NAME/"
 mkdir "$PROJECT_NAME"
 cd "$PROJECT_NAME"
@@ -45,22 +40,10 @@ cd "$PROJECT_NAME"
 # Get the absolute path of the project directory *now* that we are inside it
 PROJECT_DIR=$(pwd)
 
-# --- Environment Setup (using python's venv) ---
-echo "🐍 Setting up Python virtual environment..."
-
-# Ensure a suitable Python version is available
-if ! command -v $PYTHON_CMD &> /dev/null; then
-    echo "❌ Error: '$PYTHON_CMD' command not found."
-    echo "   Please ensure Python 3 is installed and accessible."
-    echo "   If using pyenv, make sure a version is selected (e.g., 'pyenv global 3.10.4' or 'pyenv local 3.10.4')."
-    # Clean up created directory before exiting
-    cd ..
-    rm -rf "$PROJECT_NAME"
-    exit 1
-fi
-
-# Create virtual environment
-$PYTHON_CMD -m venv venv
+# --- Environment Setup (using uv) ---
+echo "🐍 Setting up Python virtual environment using uv..."
+# Create virtual environment named 'venv'
+uv venv venv --seed # --seed ensures pip/setuptools are installed, good practice
 echo "   Virtual environment 'venv' created."
 
 # Determine the Python interpreter path within the venv
@@ -70,27 +53,31 @@ VENV_ACTIVATION_COMMAND="source $PROJECT_DIR/venv/bin/activate"
 echo "🐍 Python Interpreter Path: $PYTHON_INTERPRETER_PATH"
 echo "   (This path will be saved to .env_info.txt)"
 
-# --- Install Libraries ---
-echo "📦 Installing default libraries: $DEFAULT_LIBS ..."
-# Use the pip from the created venv
-"$PROJECT_DIR/venv/bin/pip" install --upgrade pip > /dev/null # Upgrade pip silently
-"$PROJECT_DIR/venv/bin/pip" install $DEFAULT_LIBS
+# --- Install Libraries (using uv) ---
+echo "📦 Installing default libraries using uv: $DEFAULT_LIBS ..."
+# uv automatically detects and installs into ./venv when run from project root
+uv pip install $DEFAULT_LIBS
 echo "   Libraries installed."
 
 # --- Project Scaffolding ---
 echo "🏗️ Creating project structure..."
 
-# Create source and notebooks directories
+# Create source, notebooks, and tests directories
 mkdir src
 mkdir notebooks
+mkdir tests
 
 # Create essential files
-touch src/app.py
+touch src/__init__.py             # Make src a package
+touch src/logic.py              # Sample logic file
+touch src/app.py                # Streamlit app
 touch notebooks/01_initial_exploration.ipynb # Placeholder notebook
+touch tests/__init__.py           # Make tests a package
+touch tests/test_example.py     # Sample test file
 touch .gitignore
 touch requirements.txt
 touch README.md
-touch .env_info.txt # File to store environment details
+touch .env_info.txt             # File to store environment details
 
 echo "   Directory structure created:"
 echo "   ├── .env_info.txt"
@@ -100,13 +87,18 @@ echo "   ├── requirements.txt"
 echo "   ├── notebooks/"
 echo "   │   └── 01_initial_exploration.ipynb"
 echo "   ├── src/"
-echo "   │   └── app.py"
+echo "   │   ├── __init__.py"
+echo "   │   ├── app.py"
+echo "   │   └── logic.py"
+echo "   ├── tests/"
+echo "   │   ├── __init__.py"
+echo "   │   └── test_example.py"
 echo "   └── venv/"
 
 # --- Populate Files ---
 echo "📝 Populating initial files..."
 
-# .env_info.txt
+# .env_info.txt (Same as before)
 cat << EOF > .env_info.txt
 # Python Virtual Environment Information for Project: $PROJECT_NAME
 
@@ -115,10 +107,12 @@ PYTHON_INTERPRETER="$PYTHON_INTERPRETER_PATH"
 
 # Command to activate the virtual environment in your shell:
 ACTIVATE_COMMAND="$VENV_ACTIVATION_COMMAND"
+
+# Environment created using: uv
 EOF
 echo "   Created .env_info.txt"
 
-# .gitignore
+# .gitignore (Same as before - already covers __pycache__)
 cat << EOF > .gitignore
 # Python stuff
 venv/
@@ -126,6 +120,10 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.python-version
+*.ipynb_checkpoints
+
+# Build artifacts
 build/
 dist/
 *.egg-info/
@@ -138,9 +136,6 @@ dist/
 .vscode/
 .idea/
 
-# Notebook Checkpoints
-.ipynb_checkpoints/
-
 # Streamlit secrets
 .streamlit/secrets.toml
 
@@ -148,21 +143,75 @@ dist/
 *.db
 *.db.wal
 
-# Env info file (optional: you might want to commit this for team use)
-# Comment out the next line if you want to track .env_info.txt in Git
+# Env info file (optional)
 # .env_info.txt
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
 EOF
 echo "   Populated .gitignore"
 
-# requirements.txt (freeze installed packages)
-echo "   Generating requirements.txt..."
-"$PROJECT_DIR/venv/bin/pip" freeze > requirements.txt
+# requirements.txt (generate using uv)
+echo "   Generating requirements.txt using uv..."
+uv pip freeze > requirements.txt
 
-# README.md
+# src/logic.py (Simple function for testing)
+cat << EOF > src/logic.py
+"""Sample logic file."""
+
+def add_one(number: int) -> int:
+    """Adds one to the given number."""
+    if not isinstance(number, int):
+        raise TypeError("Input must be an integer")
+    return number + 1
+
+EOF
+echo "   Populated src/logic.py"
+
+# tests/test_example.py (Simple pytest example)
+cat << EOF > tests/test_example.py
+"""Example test file using pytest."""
+
+import pytest
+from src.logic import add_one
+
+def test_add_one_success():
+    """Test that add_one correctly adds one."""
+    assert add_one(3) == 4
+    assert add_one(0) == 1
+    assert add_one(-1) == 0
+
+def test_add_one_type_error():
+    """Test that add_one raises TypeError for non-int input."""
+    with pytest.raises(TypeError):
+        add_one("hello")
+    with pytest.raises(TypeError):
+        add_one(5.5)
+
+def test_always_passes():
+    """A simple test that should always pass."""
+    assert True
+
+# Example of skipping a test
+@pytest.mark.skip(reason="Not implemented yet")
+def test_future_feature():
+    assert False
+EOF
+echo "   Populated tests/test_example.py"
+
+
+# README.md (Updated for uv and tests)
 cat << EOF > README.md
 # $PROJECT_NAME
 
-A new Python project.
+A new Python project setup using uv.
+
+## Prerequisites
+
+*   [uv](https://github.com/astral-sh/uv): Ensure \`uv\` is installed. If not: \`pip install uv\` or use the official installer.
+*   Python 3.8+
 
 ## Setup
 
@@ -174,9 +223,10 @@ A new Python project.
     \`\`\`
     *(Or use the command from \`.env_info.txt\`)*
 
-3.  **Install Dependencies (if needed later):**
+3.  **Install/Update Dependencies (using uv):**
+    If you modify dependencies or clone the repo later:
     \`\`\`bash
-    pip install -r requirements.txt
+    uv pip install -r requirements.txt
     \`\`\`
 
 ## Running the App
@@ -186,6 +236,23 @@ A new Python project.
 # Make sure the venv is activated first!
 streamlit run src/app.py
 \`\`\`
+
+## Running Tests
+
+Tests are written using \`pytest\`.
+
+1.  **Activate Environment:** Ensure your virtual environment (\`venv\`) is activated.
+    \`\`\`bash
+    source venv/bin/activate
+    \`\`\`
+2.  **Run Tests:** Execute \`pytest\` from the project root directory:
+    \`\`\`bash
+    pytest
+    \`\`\`
+    *To run with more verbose output:*
+    \`\`\`bash
+    pytest -v
+    \`\`\`
 
 ## Notebooks
 
@@ -197,7 +264,7 @@ jupyter lab
 
 ## IDE Configuration (VS Code / PyCharm)
 
-Use the Python interpreter path found in \`.env_info.txt\` or printed during setup to configure your IDE for this project. See the setup script's output or the IDE-specific instructions below.
+Use the Python interpreter path found in \`.env_info.txt\` or printed during setup (\`$PROJECT_DIR/venv/bin/python\`) to configure your IDE for this project.
 
 EOF
 echo "   Populated README.md"
@@ -208,12 +275,15 @@ import streamlit as st
 import pandas as pd
 import duckdb
 import time # Just for demo purposes
+# Example of potentially using logic from src
+# from src.logic import add_one
 
 st.set_page_config(layout="wide")
 
 st.title("🚀 My New Data App!")
 
 st.write(f"Project: **{PROJECT_NAME}**")
+# st.write(f"Testing logic: 1 + 1 = {add_one(1)}") # Example usage
 
 @st.cache_resource
 def get_duckdb_connection():
@@ -246,6 +316,7 @@ st.sidebar.write("You selected:", option)
 
 st.write("---")
 st.write("Explore more in the \`notebooks/\` directory!")
+st.write("Run tests using \`pytest\` in your terminal (after activating venv).")
 
 EOF
 echo "   Populated src/app.py"
@@ -255,12 +326,12 @@ echo "   Populated src/app.py"
 echo "🐙 Initializing Git repository..."
 git init > /dev/null
 git add . > /dev/null
-git commit -m "Initial project setup via script" > /dev/null
+git commit -m "Initial project setup using uv and pytest" > /dev/null
 echo "   Git repository initialized and initial commit made."
 
 # --- Final Instructions ---
 echo ""
-echo "✅ Project '$PROJECT_NAME' set up successfully!"
+echo "✅ Project '$PROJECT_NAME' set up successfully using uv!"
 echo "   Project Directory: $PROJECT_DIR"
 echo ""
 echo "--- Environment Details ---"
@@ -276,32 +347,20 @@ echo "2. Activate the virtual environment:"
 echo "   source venv/bin/activate"
 echo "   (To deactivate later, just type 'deactivate')"
 echo ""
-echo "3. Configure your IDE (VS Code / PyCharm):"
-echo "   * Use the Python interpreter path shown above (and saved in .env_info.txt)."
-echo "   * VS Code:"
-echo "     - Open the project folder: 'File' -> 'Open Folder...' -> Select '$PROJECT_NAME'."
-echo "     - Open the Command Palette (Cmd+Shift+P or View -> Command Palette)."
-echo "     - Type 'Python: Select Interpreter'."
-echo "     - Click on '+ Enter interpreter path...'."
-echo "     - Paste the full path: $PYTHON_INTERPRETER_PATH"
-echo "     - VS Code should now use the project's venv."
-echo "   * PyCharm:"
-echo "     - Open the project folder: 'File' -> 'Open...' -> Select '$PROJECT_NAME'."
-echo "     - Go to 'PyCharm' -> 'Settings...' (or 'Preferences...' on macOS)."
-echo "     - Navigate to 'Project: $PROJECT_NAME' -> 'Python Interpreter'."
-echo "     - Click the gear icon ⚙️ -> 'Add...'."
-echo "     - Select 'Existing environment'."
-echo "     - In the 'Interpreter:' field, click '...' and navigate to:"
-echo "       $PYTHON_INTERPRETER_PATH"
-echo "     - Click 'OK' on all dialogs. PyCharm will re-index using the venv."
+echo "3. Configure your IDE (VS Code / PyCharm) using the interpreter path:"
+echo "   $PYTHON_INTERPRETER_PATH"
+echo "   (See README.md for more detailed IDE steps)"
 echo ""
-echo "4. Run the sample Streamlit app (after activating venv):"
+echo "4. Run the sample tests:"
+echo "   pytest"
+echo ""
+echo "5. Run the sample Streamlit app:"
 echo "   streamlit run src/app.py"
 echo ""
-echo "5. Start Jupyter Lab for notebooks (after activating venv):"
+echo "6. Start Jupyter Lab for notebooks:"
 echo "   jupyter lab"
 echo ""
-echo "6. Create a repository on GitHub (e.g., named '$PROJECT_NAME')."
+echo "7. Create a repository on GitHub (e.g., named '$PROJECT_NAME')."
 echo "   Then link your local repository and push:"
 echo "   git remote add origin git@github.com:YOUR_USERNAME/$PROJECT_NAME.git"
 echo "   git branch -M main"
