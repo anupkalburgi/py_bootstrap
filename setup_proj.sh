@@ -12,10 +12,16 @@ DEFAULT_LIBS="pandas streamlit duckdb jupyterlab" # Added jupyterlab for noteboo
 
 # --- Script Logic ---
 
-echo "🚀 Starting Python Project Setup..."
+if [ -z "$1" ]; then
+  echo "❌ Error: Project name must be provided as the first argument."
+  echo "   Usage: curl ... | bash -s -- <project-name>"
+  exit 1
+fi
+PROJECT_NAME="$1"
 
+echo "🚀 Starting Python Project Setup..."
 # 1. Get Project Name
-read -p "Enter the name for your new project (e.g., my-data-app): " PROJECT_NAME
+# read -p "Enter the name for your new project (e.g., my-data-app): " PROJECT_NAME
 
 # Basic validation for project name
 if [ -z "$PROJECT_NAME" ]; then
